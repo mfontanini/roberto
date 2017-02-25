@@ -1,7 +1,11 @@
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
 set(SOURCES
-    main.cpp
+    server.cpp
+    client_connection.cpp
 )
 
-add_executable(roberto ${SOURCES})
+add_library(roberto-internal ${SOURCES})
+
+add_executable(roberto main.cpp)
+target_link_libraries(roberto roberto-internal)
