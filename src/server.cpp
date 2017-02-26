@@ -21,13 +21,13 @@ namespace roberto {
 static const LoggerPtr logger = Logger::getLogger("r.server");
 
 Server::Server(io_service& io_service, const tcp::endpoint& endpoint)
-: io_service_(io_service), acceptor_(io_service_, endpoint) {
+: io_service_(io_service), resolver_(io_service_), acceptor_(io_service_, endpoint) {
 
 }
 
 void Server::start_accept() {
     using std::placeholders::_1;
-    auto connection = make_shared<ClientConnection>(io_service_);
+    auto connection = make_shared<ClientConnection>(io_service_, resolver_);
     auto callback = bind(&Server::on_accept, this, connection, _1);
     acceptor_.async_accept(connection->get_socket(), move(callback));
 }

@@ -31,6 +31,18 @@ enum class CommandType {
     UDP_ASSOCIATE = 3
 };
 
+enum class ReplyType {
+    SUCCESS = 0,
+    GENERAL_FAILURE = 1,
+    CONNECTION_NOT_ALLOWED = 2,
+    NETWORK_UNREACHABLE = 3,
+    HOST_UNREACHABLE = 4,
+    CONNECTION_REFUSED = 5,
+    TTL_EXPIRED = 6,
+    COMMAND_NOT_SUPPORTED = 7,
+    ADDRESS_NOT_SUPPORTED = 8,
+};
+
 ROBERTO_BEGIN_PACK
 struct MethodSelectionRequest {
     uint8_t version;
@@ -61,6 +73,26 @@ ROBERTO_BEGIN_PACK
 struct SocksCommandEndpointIPv6 {
     uint8_t address[16];
     uint16_t port;
+} ROBERTO_END_PACK;
+
+ROBERTO_BEGIN_PACK
+struct SocksCommandResponseHeader {
+    uint8_t version;
+    uint8_t reply;
+    uint8_t reserved;
+    uint8_t address_type;
+} ROBERTO_END_PACK;
+
+ROBERTO_BEGIN_PACK
+struct SocksCommandResponseEndpointIPv4 {
+    uint32_t bind_ipv4_address;
+    uint16_t bind_port;
+} ROBERTO_END_PACK;
+
+ROBERTO_BEGIN_PACK
+struct SocksCommandResponseEndpointIPv6 {
+    uint8_t bind_ipv6_address[16];
+    uint16_t bind_port;
 } ROBERTO_END_PACK;
 
 } // roberto

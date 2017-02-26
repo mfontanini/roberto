@@ -20,6 +20,7 @@ private:
                    const boost::system::error_code& error);
 
     boost::asio::io_service& io_service_;
+    boost::asio::ip::tcp::resolver resolver_;
     boost::asio::ip::tcp::acceptor acceptor_;
 };
 

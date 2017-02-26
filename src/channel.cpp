@@ -27,6 +27,14 @@ Channel::Channel(io_service& io_service, tcp::resolver& resolver, const tcp::end
 
 }
 
+const tcp::endpoint& Channel::get_target_endpoint() const {
+    return endpoint_;
+}
+
+tcp::endpoint Channel::get_local_endpoint() const {
+    return socket_.local_endpoint();
+}
+
 void Channel::start() {
     auto callback = bind(&Channel::handle_resolve, shared_from_this(), _1, _2);
     resolver_.async_resolve(endpoint_, move(callback));
@@ -40,8 +48,7 @@ void Channel::read(size_t max_size) {
 
 void Channel::write(const vector<uint8_t>& buffer) {
     write_buffer_ = buffer;
-    auto callback = bind(&Channel::handle_write, shared_from_this(), _1, _2);
-    boost::asio::async_write(socket_, boost::asio::buffer(write_buffer_), move(callback));
+    write_output_buffer();
 }
 
 void Channel::connect(Resolver::iterator iter) {
@@ -102,6 +109,11 @@ void Channel::handle_write(const error_code& error, size_t bytes_read) {
         return;
     }
     status_callback_(Write{});
+}
+
+void Channel::write_output_buffer() {
+    auto callback = bind(&Channel::handle_write, shared_from_this(), _1, _2);
+    boost::asio::async_write(socket_, boost::asio::buffer(write_buffer_), move(callback));
 }
 
 } // roberto
