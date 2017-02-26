@@ -40,6 +40,10 @@ void Channel::start() {
     resolver_.async_resolve(endpoint_, move(callback));
 }
 
+void Channel::cancel() {
+    socket_.cancel();
+}
+
 void Channel::read(size_t max_size) {
     read_buffer_.resize(max_size);
     auto callback = bind(&Channel::handle_read, shared_from_this(), _1, _2);

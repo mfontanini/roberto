@@ -47,6 +47,7 @@ public:
     boost::asio::ip::tcp::endpoint get_local_endpoint() const;
 
     void start();
+    void cancel();
     void read(size_t max_size);
     void write(const std::vector<uint8_t>& buffer);
     template <typename ForwardIterator>

@@ -116,12 +116,17 @@ void ClientConnection::handle_write(const error_code& error, size_t bytes_writte
 }
 
 void ClientConnection::handle_channel_status_update(const Channel::StatusVariant& status) {
+    // If we've already destroyed the outbound connection, ignore this
+    if (!outbound_connection_) {
+        return;
+    }
     VariantDispatcher visitor{*this};
     apply_visitor(visitor, status);
 }
 
 void ClientConnection::handle_channel_status(const Channel::Error& status) {
     // Upon any errors, destroy our reference to the channel
+    outbound_connection_->cancel();
     outbound_connection_.reset();
 }
 
