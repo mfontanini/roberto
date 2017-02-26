@@ -4,6 +4,7 @@
 #include <vector>
 #include <type_traits>
 #include <cstring>
+#include <boost/variant.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
 namespace boost { namespace asio { class io_service; } }
@@ -21,17 +22,27 @@ public:
 
     void start();
 private:
-    enum State {
+    enum ReadState {
         METHOD_SELECTION,
         METHOD_SELECTION_LIST,
         AWAITING_COMMAND,
+        AWAITING_COMMAND_ADDRESS_IPV4,
+        AWAITING_COMMAND_ADDRESS_IPV6,
     };
 
-    using StateHandlerMap = std::map<State, void (ClientConnection::*)(size_t)>;
+    enum WriteState {
+        SENDING_METHOD
+    };
 
-    static const StateHandlerMap STATE_HANDLERS;
+    template <typename T>
+    using StateHandlerMap = std::map<T, void (ClientConnection::*)(size_t)>;
+    using ReadStateHandlerMap = StateHandlerMap<ReadState>;
+    using WriteStateHandlerMap = StateHandlerMap<WriteState>;
 
-    void schedule_read(size_t bytes_read);
+    static const ReadStateHandlerMap READ_STATE_HANDLERS;
+    static const WriteStateHandlerMap WRITE_STATE_HANDLERS;
+
+    void schedule_read(size_t byte_count, size_t write_offset = 0);
     void schedule_write();
 
     template <typename T>
@@ -48,16 +59,21 @@ private:
     }  
 
     void handle_read(const boost::system::error_code& error, size_t bytes_read);
-    void handle_write(const boost::system::error_code& error, size_t bytes_read);
+    void handle_write(const boost::system::error_code& error, size_t bytes_written);
 
+    // Read state handlers
     void handle_method_selection(size_t bytes_read);
     void handle_method_selection_list(size_t bytes_read);
     void handle_command(size_t bytes_read);
 
+    // Write state handlers
+    void handle_method_sent(size_t bytes_written);
+
     boost::asio::ip::tcp::socket socket_;
     std::vector<uint8_t> read_buffer_;
     std::vector<uint8_t> write_buffer_;
-    State state_{State::METHOD_SELECTION};
+    ReadState read_state_{ReadState::METHOD_SELECTION};
+    WriteState write_state_{};
 };
 
 } // roberto

@@ -19,6 +19,12 @@ enum class SocksAuthentication {
     NONE = 0
 };
 
+enum class AddressType {
+    IPV4 = 1,
+    DOMAIN_NAME = 3,
+    IPV6 = 4
+};
+
 ROBERTO_BEGIN_PACK
 struct MethodSelectionRequest {
     uint8_t version;
@@ -29,6 +35,14 @@ ROBERTO_BEGIN_PACK
 struct MethodSelectionResponse {
     uint8_t version;
     uint8_t method;
+} ROBERTO_END_PACK;
+
+ROBERTO_BEGIN_PACK
+struct SocksCommandHeader {
+    uint8_t version;
+    uint8_t command;
+    uint8_t reserved;
+    uint8_t address_type;
 } ROBERTO_END_PACK;
 
 } // roberto
