@@ -25,6 +25,7 @@ public:
     const SocketType& get_socket() const;
 
     void start();
+    void cancel();
 private:
     enum ReadState {
         METHOD_SELECTION,
@@ -113,6 +114,7 @@ private:
 
     boost::asio::ip::tcp::socket socket_;
     boost::asio::ip::tcp::resolver& resolver_;
+    boost::asio::ip::tcp::endpoint endpoint_;
     std::vector<uint8_t> read_buffer_;
     std::vector<uint8_t> write_buffer_;
     std::shared_ptr<Channel> outbound_connection_;

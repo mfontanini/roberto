@@ -66,7 +66,20 @@ const ClientConnection::SocketType& ClientConnection::get_socket() const {
 }
 
 void ClientConnection::start() {
+    endpoint_ = socket_.remote_endpoint();
+    LOG4CXX_INFO(logger, "Accepted client connection from " << endpoint_);
+
     schedule_read(sizeof(MethodSelectionRequest));
+}
+
+void ClientConnection::cancel() {
+    if (outbound_connection_) {
+        outbound_connection_->cancel();
+        LOG4CXX_INFO(logger, "Closing connection to "
+                     << outbound_connection_->get_target_endpoint());
+        outbound_connection_.reset();
+    }
+    socket_.cancel();
 }
 
 void ClientConnection::schedule_read(size_t byte_count, size_t write_offset) {
@@ -75,6 +88,8 @@ void ClientConnection::schedule_read(size_t byte_count, size_t write_offset) {
                       << static_cast<int>(read_state_));
         return;
     }
+    LOG4CXX_TRACE(logger, "Reading " << byte_count << " bytes from connection for "
+                  << endpoint_);
     auto callback = bind(&ClientConnection::handle_read, shared_from_this(), _1, _2);
     auto buffer_start = read_buffer_.data() + write_offset;
     boost::asio::async_read(socket_, boost::asio::buffer(buffer_start, byte_count),
@@ -87,15 +102,18 @@ void ClientConnection::schedule_read_some() {
 }
 
 void ClientConnection::schedule_write() {
+    LOG4CXX_TRACE(logger, "Writing " << write_buffer_.size() << " bytes into connection for "
+                  << endpoint_);
     auto callback = bind(&ClientConnection::handle_write, shared_from_this(), _1, _2);
     boost::asio::async_write(socket_, boost::asio::buffer(write_buffer_), move(callback));
 }
 
 void ClientConnection::handle_read(const error_code& error, size_t bytes_read) {
     if (error) {
-        if (utils::is_operation_aborted(error)) {
+        if (!utils::is_operation_aborted(error)) {
             LOG4CXX_DEBUG(logger, "Failed while reading from socket: " << error.message());
         }
+        cancel();
         return;
     }
     auto iter = READ_STATE_HANDLERS.find(read_state_);
@@ -105,9 +123,10 @@ void ClientConnection::handle_read(const error_code& error, size_t bytes_read) {
 
 void ClientConnection::handle_write(const error_code& error, size_t bytes_written) {
     if (error) {
-        if (utils::is_operation_aborted(error)) {
+        if (!utils::is_operation_aborted(error)) {
             LOG4CXX_DEBUG(logger, "Error while writing to socket: " << error.message());
         }
+        cancel();
         return;
     }
     auto iter = WRITE_STATE_HANDLERS.find(write_state_);
@@ -126,8 +145,7 @@ void ClientConnection::handle_channel_status_update(const Channel::StatusVariant
 
 void ClientConnection::handle_channel_status(const Channel::Error& status) {
     // Upon any errors, destroy our reference to the channel
-    outbound_connection_->cancel();
-    outbound_connection_.reset();
+    cancel();
 }
 
 void ClientConnection::handle_channel_status(const Channel::Connected& /*status*/) {
@@ -149,11 +167,13 @@ void ClientConnection::handle_channel_status(const Channel::Connected& /*status*
         // Write the local endpoint after the response header
         const uint16_t port = htons(local_endpoint.port());
         if (local_endpoint.address().is_v4()) {
+            response.address_type = static_cast<uint8_t>(AddressType::IPV4);
             uint32_t address = local_endpoint.address().to_v4().to_ulong();
             SocksCommandResponseEndpointIPv4 body{address, port};
             set_buffer(body, sizeof(response));
         }
         else if (local_endpoint.address().is_v6()) {
+            response.address_type = static_cast<uint8_t>(AddressType::IPV6);
             auto address_bytes = local_endpoint.address().to_v6().to_bytes();
             SocksCommandResponseEndpointIPv6 body;
             copy(address_bytes.begin(), address_bytes.end(), body.bind_ipv6_address);
@@ -165,14 +185,14 @@ void ClientConnection::handle_channel_status(const Channel::Connected& /*status*
             response.reply = static_cast<int>(ReplyType::GENERAL_FAILURE);
         }
     }
-    // Now prepend our header
-    set_buffer(response);
+    // Prepend our header
+    memcpy(write_buffer_.data(), &response, sizeof(response));
     write_state_ = SENDING_COMMAND_RESPONSE;
     schedule_write();
 }
 
 void ClientConnection::handle_channel_status(const Channel::Read& status) {
-    set_buffer(status.buffer.begin(), status.buffer.end());
+    set_buffer(status.buffer_start, status.buffer_end);
     schedule_write();
 }
 
@@ -194,18 +214,22 @@ void ClientConnection::handle_method_selection(size_t /*bytes_read*/) {
     }
     // We're now waiting for a list of methods. Change state and read them
     read_state_ = METHOD_SELECTION_LIST;
-    schedule_read(request->method_count);
+    // Read after our request so we can still access the current data
+    schedule_read(request->method_count, sizeof(MethodSelectionRequest));
 }
 
 void ClientConnection::handle_method_selection_list(size_t bytes_read) {
     // TODO: expand this so we allow plain user/password authentication
+    const size_t offset = sizeof(MethodSelectionRequest);
     for (size_t i = 0; i < bytes_read; ++i) {
-        if (read_buffer_[i] == static_cast<uint8_t>(SocksAuthentication::NONE)) {
+        const uint8_t method = read_buffer_[offset + i];
+        if (method == static_cast<uint8_t>(SocksAuthentication::NONE)) {
             const auto* request = cast_buffer<MethodSelectionRequest>();
 
-            set_buffer(MethodSelectionResponse{request->version, read_buffer_[i]});
+            set_buffer(MethodSelectionResponse{request->version, method});
             write_state_ = SENDING_METHOD;
             schedule_write();
+            return;
         }
     }
     LOG4CXX_DEBUG(logger, "Ignoring request as no selected authentication method is supported");
@@ -239,7 +263,7 @@ void ClientConnection::handle_command(size_t /*bytes_read*/) {
 void ClientConnection::handle_endpoint_ipv4(size_t /*bytes_read*/) {
     // Read the endpoint part of this command (skip header)
     const auto* endpoint = cast_buffer<SocksCommandEndpointIPv4>(sizeof(SocksCommandHeader));
-    address endpoint_address = address_v4(endpoint->address);
+    address endpoint_address = address_v4(ntohl(endpoint->address));
 
     tcp::endpoint tcp_endpoint(endpoint_address, ntohs(endpoint->port));
     handle_command_endpoint(tcp_endpoint);
@@ -267,9 +291,11 @@ void ClientConnection::handle_command_endpoint(const tcp::endpoint& endpoint) {
                           << static_cast<int>(command->command));
             return;
     }
+    LOG4CXX_DEBUG(logger, "Received connection request for " << endpoint);
     auto callback = bind(&ClientConnection::handle_channel_status_update, shared_from_this(), _1);
     outbound_connection_ = make_shared<Channel>(socket_.get_io_service(), resolver_, endpoint,
                                                 std::move(callback));
+    outbound_connection_->start();
 }
 
 void ClientConnection::handle_client_read(size_t bytes_read) {
@@ -288,8 +314,8 @@ void ClientConnection::handle_command_response_sent(size_t bytes_written) {
     LOG4CXX_DEBUG(logger, "Starting proxying connection");
     read_state_ = PROXY_READ;
     write_state_ = PROXY_WRITE;
-    // Try to read at most our write buffer size from our outbound connection
-    outbound_connection_->read(write_buffer_.size());
+    // Try to read at most our read buffer size from our outbound connection
+    outbound_connection_->read(read_buffer_.size());
     // Try to read from out client's connection
     schedule_read_some();
 }
@@ -297,7 +323,7 @@ void ClientConnection::handle_command_response_sent(size_t bytes_written) {
 void ClientConnection::handle_client_write(size_t /*bytes_written*/) {
     // We finished forwarding data to our client. It's time to read again from the outbound 
     // connection
-    outbound_connection_->read(write_buffer_.size());
+    outbound_connection_->read(read_buffer_.size());
 }
 
 } // roberto

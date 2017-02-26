@@ -10,4 +10,4 @@ set(SOURCES
 add_library(roberto-internal ${SOURCES})
 
 add_executable(roberto main.cpp)
-target_link_libraries(roberto roberto-internal)
+target_link_libraries(roberto roberto-internal log4cxx)

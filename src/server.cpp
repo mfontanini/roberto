@@ -12,6 +12,7 @@ using boost::asio::ip::tcp;
 using boost::asio::io_service;
 
 using boost::system::error_code;
+using boost::system::system_error;
 
 using log4cxx::Logger;
 using log4cxx::LoggerPtr;
@@ -23,6 +24,10 @@ static const LoggerPtr logger = Logger::getLogger("r.server");
 Server::Server(io_service& io_service, const tcp::endpoint& endpoint)
 : io_service_(io_service), resolver_(io_service_), acceptor_(io_service_, endpoint) {
 
+}
+
+void Server::start() {
+    start_accept();
 }
 
 void Server::start_accept() {
@@ -39,7 +44,12 @@ void Server::on_accept(shared_ptr<ClientConnection> connection, const error_code
         }
     }
     else {
-        connection->start();
+        try {
+            connection->start();
+        }
+        catch (const system_error& error) {
+            LOG4CXX_DEBUG(logger, "Error while starting connection: " << error.what());
+        }
         start_accept();
     }
 }

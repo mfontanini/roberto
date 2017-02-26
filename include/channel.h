@@ -30,7 +30,8 @@ public:
     };
 
     struct Read {
-        const std::vector<uint8_t>& buffer;
+        std::vector<uint8_t>::const_iterator buffer_start;
+        std::vector<uint8_t>::const_iterator buffer_end;
     };
 
     struct Write {

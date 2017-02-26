@@ -45,6 +45,8 @@ void Channel::cancel() {
 }
 
 void Channel::read(size_t max_size) {
+    LOG4CXX_TRACE(logger, "Reading at most " << max_size << " bytes from connection to "
+                  << endpoint_);
     read_buffer_.resize(max_size);
     auto callback = bind(&Channel::handle_read, shared_from_this(), _1, _2);
     socket_.async_read_some(boost::asio::buffer(read_buffer_), move(callback));
@@ -52,6 +54,8 @@ void Channel::read(size_t max_size) {
 
 void Channel::write(const vector<uint8_t>& buffer) {
     write_buffer_ = buffer;
+    LOG4CXX_TRACE(logger, "Writing " << buffer.size() << " bytes into connection to "
+                  << endpoint_);
     write_output_buffer();
 }
 
@@ -100,7 +104,8 @@ void Channel::handle_read(const error_code& error, size_t bytes_read) {
         status_callback_(Error{error, Error::Stage::READ});
         return;
     }
-    status_callback_(Read{read_buffer_});
+    LOG4CXX_TRACE(logger, "Received " << bytes_read << " bytes from connection to " << endpoint_);
+    status_callback_(Read{read_buffer_.begin(), read_buffer_.begin() + bytes_read});
 }
 
 void Channel::handle_write(const error_code& error, size_t bytes_read) {
