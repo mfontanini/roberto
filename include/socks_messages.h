@@ -25,6 +25,12 @@ enum class AddressType {
     IPV6 = 4
 };
 
+enum class CommandType {
+    CONNECT = 1,
+    BIND = 2,
+    UDP_ASSOCIATE = 3
+};
+
 ROBERTO_BEGIN_PACK
 struct MethodSelectionRequest {
     uint8_t version;
@@ -43,6 +49,18 @@ struct SocksCommandHeader {
     uint8_t command;
     uint8_t reserved;
     uint8_t address_type;
+} ROBERTO_END_PACK;
+
+ROBERTO_BEGIN_PACK
+struct SocksCommandEndpointIPv4 {
+    uint32_t address;
+    uint16_t port;
+} ROBERTO_END_PACK;
+
+ROBERTO_BEGIN_PACK
+struct SocksCommandEndpointIPv6 {
+    uint8_t address[16];
+    uint16_t port;
 } ROBERTO_END_PACK;
 
 } // roberto

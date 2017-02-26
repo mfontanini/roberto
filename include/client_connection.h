@@ -26,8 +26,8 @@ private:
         METHOD_SELECTION,
         METHOD_SELECTION_LIST,
         AWAITING_COMMAND,
-        AWAITING_COMMAND_ADDRESS_IPV4,
-        AWAITING_COMMAND_ADDRESS_IPV6,
+        AWAITING_COMMAND_ENDPOINT_IPV4,
+        AWAITING_COMMAND_ENDPOINT_IPV6,
     };
 
     enum WriteState {
@@ -53,9 +53,9 @@ private:
     }
 
     template <typename T>
-    const T* cast_buffer() {
-        assert(read_buffer_.size() >= sizeof(T));
-        return reinterpret_cast<const T*>(read_buffer_.data());
+    const T* cast_buffer(size_t offset = 0) {
+        assert(read_buffer_.size() >= (sizeof(T) + offset));
+        return reinterpret_cast<const T*>(read_buffer_.data() + offset);
     }  
 
     void handle_read(const boost::system::error_code& error, size_t bytes_read);
@@ -65,6 +65,9 @@ private:
     void handle_method_selection(size_t bytes_read);
     void handle_method_selection_list(size_t bytes_read);
     void handle_command(size_t bytes_read);
+    void handle_endpoint_ipv4(size_t bytes_read);
+    void handle_endpoint_ipv6(size_t bytes_read);
+    void handle_command_endpoint(const boost::asio::ip::tcp::endpoint& endpoint);
 
     // Write state handlers
     void handle_method_sent(size_t bytes_written);
