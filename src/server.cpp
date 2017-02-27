@@ -3,6 +3,7 @@
 #include <log4cxx/logger.h>
 #include <boost/asio/io_service.hpp>
 #include "client_connection.h"
+#include "authentication_manager.h"
 
 using std::shared_ptr;
 using std::make_shared;
@@ -21,8 +22,10 @@ namespace roberto {
 
 static const LoggerPtr logger = Logger::getLogger("r.server");
 
-Server::Server(io_service& io_service, const tcp::endpoint& endpoint)
-: io_service_(io_service), resolver_(io_service_), acceptor_(io_service_, endpoint) {
+Server::Server(io_service& io_service, const tcp::endpoint& endpoint,
+               shared_ptr<AuthenticationManager> auth_manager)
+: io_service_(io_service), resolver_(io_service_), acceptor_(io_service_, endpoint),
+  auth_manager_(move(auth_manager)) {
 
 }
 
@@ -33,7 +36,7 @@ void Server::start() {
 
 void Server::start_accept() {
     using std::placeholders::_1;
-    auto connection = make_shared<ClientConnection>(io_service_, resolver_);
+    auto connection = make_shared<ClientConnection>(io_service_, resolver_, auth_manager_);
     auto callback = bind(&Server::on_accept, this, connection, _1);
     acceptor_.async_accept(connection->get_socket(), move(callback));
 }

@@ -11,6 +11,7 @@
 
 using std::unordered_set;
 using std::copy;
+using std::shared_ptr;
 using std::make_shared;
 
 using std::placeholders::_1;
@@ -52,8 +53,9 @@ const ClientConnection::WriteStateHandlerMap ClientConnection::WRITE_STATE_HANDL
 
 static unordered_set<uint8_t> SUPPORTED_VERSIONS = { 4, 5 };
 
-ClientConnection::ClientConnection(io_service& io_service, tcp::resolver& resolver)
-: socket_(io_service), resolver_(resolver), read_buffer_(4096) {
+ClientConnection::ClientConnection(io_service& io_service, tcp::resolver& resolver,
+                                   shared_ptr<AuthenticationManager> auth_manager)
+: socket_(io_service), resolver_(resolver), auth_manager_(move(auth_manager)), read_buffer_(4096) {
 
 }
 

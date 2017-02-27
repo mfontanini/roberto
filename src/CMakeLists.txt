@@ -4,6 +4,7 @@ set(SOURCES
     server.cpp
     client_connection.cpp
     channel.cpp
+    authentication_manager.cpp
     utils.cpp
 )
 

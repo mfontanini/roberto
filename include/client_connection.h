@@ -14,12 +14,15 @@ namespace boost { namespace asio { class io_service; } }
 
 namespace roberto {
 
+class AuthenticationManager;
+
 class ClientConnection : public std::enable_shared_from_this<ClientConnection> {
 public:
     using SocketType = boost::asio::ip::tcp::socket;
 
     ClientConnection(boost::asio::io_service& io_service,
-                     boost::asio::ip::tcp::resolver& resolver);
+                     boost::asio::ip::tcp::resolver& resolver,
+                     std::shared_ptr<AuthenticationManager> auth_manager);
 
     SocketType& get_socket();
     const SocketType& get_socket() const;
@@ -115,6 +118,7 @@ private:
     boost::asio::ip::tcp::socket socket_;
     boost::asio::ip::tcp::resolver& resolver_;
     boost::asio::ip::tcp::endpoint endpoint_;
+    std::shared_ptr<AuthenticationManager> auth_manager_;
     std::vector<uint8_t> read_buffer_;
     std::vector<uint8_t> write_buffer_;
     std::shared_ptr<Channel> outbound_connection_;
