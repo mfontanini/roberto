@@ -27,6 +27,7 @@ Server::Server(io_service& io_service, const tcp::endpoint& endpoint)
 }
 
 void Server::start() {
+    LOG4CXX_INFO(logger, "Listening for connections on " << acceptor_.local_endpoint());
     start_accept();
 }
 

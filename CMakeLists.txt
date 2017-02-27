@@ -3,7 +3,7 @@ project(roberto)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall")
 
-find_package(Boost COMPONENTS system thread)
+find_package(Boost COMPONENTS system thread program_options)
 
 include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES})
