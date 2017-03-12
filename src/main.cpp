@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 #include <stdexcept>
+#include <thread>
 #include <boost/asio/io_service.hpp>
 #include <boost/program_options.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -26,6 +27,7 @@ using std::exception;
 using std::shared_ptr;
 using std::make_shared;
 using std::vector;
+using std::thread;
 using std::runtime_error;
 
 using boost::asio::io_service;
@@ -86,6 +88,7 @@ int main(int argc, char* argv[]) {
     string log_level;
     string credentials;
     uint16_t port;
+    size_t num_threads;
 
     po::options_description options("Options");
     options.add_options()
@@ -99,6 +102,8 @@ int main(int argc, char* argv[]) {
                         "the address to bind to")
         ("port",        po::value<uint16_t>(&port)->required(),
                         "the port to bind to")
+        ("num-threads", po::value<size_t>(&num_threads)->default_value(2),
+                        "the amount of threads to use")
         ("log-level",   po::value<string>(&log_level)->default_value("INFO"),
                         "the log level to use (TRACE, DEBUG, INFO, WARN, ERROR)")
         ("credentials", po::value<string>(&credentials),
@@ -168,7 +173,14 @@ int main(int argc, char* argv[]) {
             service.stop();
         };
         signal(SIGINT, &signal_handler);
-        service.run();
+
+        vector<thread> threads;
+        for (size_t i = 0; i < num_threads; ++i) {
+            threads.emplace_back([&] { service.run(); });
+        }
+        for (auto& th : threads) {
+            th.join();
+        }
     }
     catch (const exception& error) {
         LOG4CXX_ERROR(logger, "Error running server: " << error.what());
