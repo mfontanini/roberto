@@ -41,7 +41,9 @@ void Channel::start() {
 }
 
 void Channel::cancel() {
-    socket_.cancel();
+    if (socket_.is_open()) {
+        socket_.cancel();
+    }
 }
 
 void Channel::read(size_t max_size) {
