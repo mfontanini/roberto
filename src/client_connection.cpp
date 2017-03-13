@@ -11,6 +11,7 @@
 
 using std::unordered_set;
 using std::copy;
+using std::string;
 using std::shared_ptr;
 using std::make_shared;
 
@@ -42,6 +43,10 @@ const ClientConnection::ReadStateHandlerMap ClientConnection::READ_STATE_HANDLER
     { ClientConnection::AWAITING_COMMAND, &ClientConnection::handle_command },
     { ClientConnection::AWAITING_COMMAND_ENDPOINT_IPV4, &ClientConnection::handle_endpoint_ipv4 },
     { ClientConnection::AWAITING_COMMAND_ENDPOINT_IPV6, &ClientConnection::handle_endpoint_ipv6 },
+    { ClientConnection::AWAITING_COMMAND_ENDPOINT_DOMAIN_LENGTH,
+      &ClientConnection::handle_endpoint_domain_length },
+    { ClientConnection::AWAITING_COMMAND_ENDPOINT_DOMAIN_BODY,
+      &ClientConnection::handle_endpoint_domain },
     { ClientConnection::PROXY_READ, &ClientConnection::handle_client_read },
 };
 
@@ -55,7 +60,8 @@ static unordered_set<uint8_t> SUPPORTED_VERSIONS = { 4, 5 };
 
 ClientConnection::ClientConnection(io_service& io_service, tcp::resolver& resolver,
                                    shared_ptr<AuthenticationManager> auth_manager)
-: socket_(io_service), resolver_(resolver), auth_manager_(move(auth_manager)), read_buffer_(4096) {
+: socket_(io_service), resolver_(resolver), strand_(io_service), auth_manager_(move(auth_manager)),
+  read_buffer_(4096) {
 
 }
 
@@ -95,19 +101,19 @@ void ClientConnection::schedule_read(size_t byte_count, size_t write_offset) {
     auto callback = bind(&ClientConnection::handle_read, shared_from_this(), _1, _2);
     auto buffer_start = read_buffer_.data() + write_offset;
     boost::asio::async_read(socket_, boost::asio::buffer(buffer_start, byte_count),
-                            move(callback));
+                            strand_.wrap(callback));
 }
 
 void ClientConnection::schedule_read_some() {
     auto callback = bind(&ClientConnection::handle_read, shared_from_this(), _1, _2);
-    socket_.async_read_some(boost::asio::buffer(read_buffer_), move(callback));
+    socket_.async_read_some(boost::asio::buffer(read_buffer_), strand_.wrap(callback));
 }
 
 void ClientConnection::schedule_write() {
     LOG4CXX_TRACE(logger, "Writing " << write_buffer_.size() << " bytes into connection for "
                   << endpoint_);
     auto callback = bind(&ClientConnection::handle_write, shared_from_this(), _1, _2);
-    boost::asio::async_write(socket_, boost::asio::buffer(write_buffer_), move(callback));
+    boost::asio::async_write(socket_, boost::asio::buffer(write_buffer_), strand_.wrap(callback));
 }
 
 void ClientConnection::handle_read(const error_code& error, size_t bytes_read) {
@@ -254,6 +260,10 @@ void ClientConnection::handle_command(size_t /*bytes_read*/) {
             read_state_ = AWAITING_COMMAND_ENDPOINT_IPV6;
             next_read_size = sizeof(SocksCommandEndpointIPv6);
             break;
+        case AddressType::DOMAIN_NAME:
+            read_state_ = AWAITING_COMMAND_ENDPOINT_DOMAIN_LENGTH;
+            next_read_size = sizeof(uint8_t);
+            break;
         default:
             LOG4CXX_DEBUG(logger, "Unsupported address type " << (int)command->address_type);
             return;
@@ -265,10 +275,9 @@ void ClientConnection::handle_command(size_t /*bytes_read*/) {
 void ClientConnection::handle_endpoint_ipv4(size_t /*bytes_read*/) {
     // Read the endpoint part of this command (skip header)
     const auto* endpoint = cast_buffer<SocksCommandEndpointIPv4>(sizeof(SocksCommandHeader));
-    address endpoint_address = address_v4(ntohl(endpoint->address));
+    string endpoint_address = address_v4(ntohl(endpoint->address)).to_string();
 
-    tcp::endpoint tcp_endpoint(endpoint_address, ntohs(endpoint->port));
-    handle_command_endpoint(tcp_endpoint);
+    handle_command_endpoint(endpoint_address, ntohs(endpoint->port));
 }
 
 void ClientConnection::handle_endpoint_ipv6(size_t bytes_read) {
@@ -276,33 +285,55 @@ void ClientConnection::handle_endpoint_ipv6(size_t bytes_read) {
     const auto* endpoint = cast_buffer<SocksCommandEndpointIPv6>(sizeof(SocksCommandHeader));
     address_v6::bytes_type address_buffer;
     copy(endpoint->address, endpoint->address + 16, address_buffer.begin());
-    address endpoint_address = address_v6(address_buffer);
+    string endpoint_address = address_v6(address_buffer).to_string();
     
-    tcp::endpoint tcp_endpoint(endpoint_address, ntohs(endpoint->port));   
-    handle_command_endpoint(tcp_endpoint);
+    handle_command_endpoint(endpoint_address, ntohs(endpoint->port));
 }
 
-void ClientConnection::handle_command_endpoint(const tcp::endpoint& endpoint) {
+void ClientConnection::handle_endpoint_domain_length(size_t bytes_read) {
+    const size_t address_length = read_buffer_[sizeof(SocksCommandHeader)];
+    if (address_length == 0) {
+        LOG4CXX_DEBUG(logger, "Received invalid length 0 for domain name");
+        return;
+    }
+    read_state_ = AWAITING_COMMAND_ENDPOINT_DOMAIN_BODY;
+    schedule_read(address_length + sizeof(uint16_t), sizeof(SocksCommandHeader) + sizeof(uint8_t));
+}
+
+void ClientConnection::handle_endpoint_domain(size_t bytes_read) {
+    const size_t address_length = bytes_read - sizeof(uint16_t);
+    const auto buffer_start = read_buffer_.begin() + sizeof(SocksCommandHeader) + sizeof(uint8_t);
+    string endpoint_address(buffer_start, buffer_start + address_length);
+    uint16_t port;
+    memcpy(&port, &*(buffer_start + address_length), sizeof(port));
+    port = ntohs(port);
+
+    handle_command_endpoint(endpoint_address, port); 
+}
+
+void ClientConnection::handle_command_endpoint(const string& address, uint16_t port) {
     const auto* command = cast_buffer<SocksCommandHeader>();
     switch (static_cast<CommandType>(command->command)) {
         case CommandType::CONNECT:
-
             break;
         default:
             LOG4CXX_DEBUG(logger, "Ignoring command request due to unsupported command: "
                           << static_cast<int>(command->command));
             return;
     }
-    LOG4CXX_DEBUG(logger, "Received connection request for " << endpoint);
+    LOG4CXX_DEBUG(logger, "Received connection request for " << address << ":" << port);
     auto callback = bind(&ClientConnection::handle_channel_status_update, shared_from_this(), _1);
-    outbound_connection_ = make_shared<Channel>(socket_.get_io_service(), resolver_, endpoint,
-                                                std::move(callback));
+    outbound_connection_ = make_shared<Channel>(socket_.get_io_service(), resolver_, address, port,
+                                                strand_.wrap(callback));
     outbound_connection_->start();
 }
 
 void ClientConnection::handle_client_read(size_t bytes_read) {
-    // Forward the read bytes into our outbound connection
-    outbound_connection_->write(read_buffer_.begin(), read_buffer_.begin() + bytes_read);
+    // We might have just destroyed this
+    if (outbound_connection_) {
+        // Forward the read bytes into our outbound connection
+        outbound_connection_->write(read_buffer_.begin(), read_buffer_.begin() + bytes_read);
+    }
 }
 
 void ClientConnection::handle_method_sent(size_t bytes_written) {

@@ -7,6 +7,7 @@
 #include <memory>
 #include <boost/variant.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/variant/static_visitor.hpp>
 #include "channel.h"
 
@@ -36,6 +37,8 @@ private:
         AWAITING_COMMAND,
         AWAITING_COMMAND_ENDPOINT_IPV4,
         AWAITING_COMMAND_ENDPOINT_IPV6,
+        AWAITING_COMMAND_ENDPOINT_DOMAIN_LENGTH,
+        AWAITING_COMMAND_ENDPOINT_DOMAIN_BODY,
         PROXY_READ,
     };
 
@@ -107,7 +110,9 @@ private:
     void handle_command(size_t bytes_read);
     void handle_endpoint_ipv4(size_t bytes_read);
     void handle_endpoint_ipv6(size_t bytes_read);
-    void handle_command_endpoint(const boost::asio::ip::tcp::endpoint& endpoint);
+    void handle_endpoint_domain_length(size_t bytes_read);
+    void handle_endpoint_domain(size_t bytes_read);
+    void handle_command_endpoint(const std::string& address, uint16_t port);
     void handle_client_read(size_t bytes_read);
 
     // Write state handlers
@@ -117,6 +122,7 @@ private:
 
     boost::asio::ip::tcp::socket socket_;
     boost::asio::ip::tcp::resolver& resolver_;
+    boost::asio::strand strand_;
     boost::asio::ip::tcp::endpoint endpoint_;
     std::shared_ptr<AuthenticationManager> auth_manager_;
     std::vector<uint8_t> read_buffer_;

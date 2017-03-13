@@ -42,9 +42,9 @@ public:
     using StatusCallback = std::function<void(const StatusVariant&)>;
 
     Channel(boost::asio::io_service& io_service, boost::asio::ip::tcp::resolver& resolver,
-            const boost::asio::ip::tcp::endpoint& endpoint, StatusCallback status_callback);
+            const std::string& address, uint16_t port, StatusCallback status_callback);
 
-    const boost::asio::ip::tcp::endpoint& get_target_endpoint() const;
+    std::string get_target_endpoint() const;
     boost::asio::ip::tcp::endpoint get_local_endpoint() const;
 
     void start();
@@ -69,7 +69,8 @@ private:
 
     boost::asio::ip::tcp::socket socket_;
     Resolver& resolver_;
-    boost::asio::ip::tcp::endpoint endpoint_;
+    std::string address_;
+    uint16_t port_;
     StatusCallback status_callback_;
     std::vector<uint8_t> read_buffer_;
     std::vector<uint8_t> write_buffer_;

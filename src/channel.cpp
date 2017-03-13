@@ -1,10 +1,14 @@
 #include "channel.h"
+#include <sstream>
 #include <boost/asio/write.hpp>
 #include <log4cxx/logger.h>
 #include "utils.h"
 
 using std::vector;
 using std::bind;
+using std::string;
+using std::to_string;
+using std::ostringstream;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
@@ -20,15 +24,17 @@ namespace roberto {
 
 static const LoggerPtr logger = Logger::getLogger("r.channel");
 
-Channel::Channel(io_service& io_service, tcp::resolver& resolver, const tcp::endpoint& endpoint,
-                 StatusCallback status_callback)
-: socket_(io_service), resolver_(resolver), endpoint_(endpoint),
+Channel::Channel(io_service& io_service, tcp::resolver& resolver, const string& address,
+                 uint16_t port, StatusCallback status_callback)
+: socket_(io_service), resolver_(resolver), address_(address), port_(port),
   status_callback_(std::move(status_callback)) {
 
 }
 
-const tcp::endpoint& Channel::get_target_endpoint() const {
-    return endpoint_;
+string Channel::get_target_endpoint() const {
+    ostringstream output;
+    output << address_ << ":" << port_;
+    return output.str();
 }
 
 tcp::endpoint Channel::get_local_endpoint() const {
@@ -37,7 +43,8 @@ tcp::endpoint Channel::get_local_endpoint() const {
 
 void Channel::start() {
     auto callback = bind(&Channel::handle_resolve, shared_from_this(), _1, _2);
-    resolver_.async_resolve(endpoint_, move(callback));
+    Resolver::query query(address_, to_string(port_));
+    resolver_.async_resolve(query, move(callback));
 }
 
 void Channel::cancel() {
@@ -48,7 +55,7 @@ void Channel::cancel() {
 
 void Channel::read(size_t max_size) {
     LOG4CXX_TRACE(logger, "Reading at most " << max_size << " bytes from connection to "
-                  << endpoint_);
+                  << get_target_endpoint());
     read_buffer_.resize(max_size);
     auto callback = bind(&Channel::handle_read, shared_from_this(), _1, _2);
     socket_.async_read_some(boost::asio::buffer(read_buffer_), move(callback));
@@ -57,7 +64,7 @@ void Channel::read(size_t max_size) {
 void Channel::write(const vector<uint8_t>& buffer) {
     write_buffer_ = buffer;
     LOG4CXX_TRACE(logger, "Writing " << buffer.size() << " bytes into connection to "
-                  << endpoint_);
+                  << get_target_endpoint());
     write_output_buffer();
 }
 
@@ -71,7 +78,8 @@ void Channel::connect(Resolver::iterator iter) {
 void Channel::handle_resolve(const error_code& error, Resolver::iterator iter) {
     if (error) {
         if (!utils::is_operation_aborted(error)) {
-            LOG4CXX_INFO(logger, "Failed to resolve " << endpoint_ << ": " << error.message());
+            LOG4CXX_INFO(logger, "Failed to resolve " << get_target_endpoint() << ": "
+                         << error.message());
         }
         status_callback_(Error{error, Error::Stage::DNS});
         return;
@@ -84,7 +92,7 @@ void Channel::handle_connect(const error_code& error, Resolver::iterator iter) {
         // If we still have endpoints to attempt a connection to, then don't worry error'ing
         if (iter == Resolver::iterator()) {
             if (!utils::is_operation_aborted(error)) {
-                LOG4CXX_INFO(logger, "Failed to connect to " << endpoint_ << ": "
+                LOG4CXX_INFO(logger, "Failed to connect to " << get_target_endpoint() << ": "
                              << error.message());
             }
             status_callback_(Error{error, Error::Stage::CONNECT});
@@ -100,21 +108,22 @@ void Channel::handle_connect(const error_code& error, Resolver::iterator iter) {
 void Channel::handle_read(const error_code& error, size_t bytes_read) {
     if (error) {
         if (!utils::is_operation_aborted(error)) {
-            LOG4CXX_DEBUG(logger, "Failed to read from connection to " << endpoint_ << ": "
-                          << error.message());
+            LOG4CXX_DEBUG(logger, "Failed to read from connection to " << get_target_endpoint()
+                          << ": " << error.message());
         }
         status_callback_(Error{error, Error::Stage::READ});
         return;
     }
-    LOG4CXX_TRACE(logger, "Received " << bytes_read << " bytes from connection to " << endpoint_);
+    LOG4CXX_TRACE(logger, "Received " << bytes_read << " bytes from connection to "
+                  << get_target_endpoint());
     status_callback_(Read{read_buffer_.begin(), read_buffer_.begin() + bytes_read});
 }
 
 void Channel::handle_write(const error_code& error, size_t bytes_read) {
     if (error) {
         if (!utils::is_operation_aborted(error)) {
-            LOG4CXX_DEBUG(logger, "Failed to write to connection to " << endpoint_ << ": "
-                         << error.message());
+            LOG4CXX_DEBUG(logger, "Failed to write to connection to " << get_target_endpoint()
+                          << ": " << error.message());
         }
         status_callback_(Error{error, Error::Stage::WRITE});
         return;
